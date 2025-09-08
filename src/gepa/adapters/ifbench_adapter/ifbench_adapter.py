@@ -44,6 +44,107 @@ class IFBenchAdapter(GEPAAdapter[IFBenchDataInst, IFBenchTrajectory, IFBenchRoll
         self.failure_score = failure_score
         self.max_litellm_workers = max_litellm_workers
 
+    def _batch_run(self, litellm_requests: list[list[dict[str, str]]]) -> list[str]:
+        """Legacy synchronous batch execution using LiteLLM batch_completion.
+
+        Note: This mirrors the previous implementation and is retained as a fallback
+        when async execution cannot be used (e.g., running inside an active event loop).
+        """
+        print(f"Batch running {len(litellm_requests)} items with model {self.model} and max_litellm_workers {self.max_litellm_workers}")
+        import math
+        import time
+        total = len(litellm_requests)
+        if total == 0:
+            return []
+        # Determine block size as ~2.5 * max_workers
+        workers = self.max_litellm_workers if self.max_litellm_workers > 0 else 10
+        block_size = max(1, int(math.ceil(workers * 2.5)))
+        responses_out: list[str | None] = [None] * total
+        start = 0
+        block_index = 0
+        while start < total:
+            end = min(start + block_size, total)
+            block_index += 1
+            start_time = time.time()
+            print(f"Starting batch block {block_index}: [{start}:{end}) size={end - start}")
+            try:
+                if isinstance(self.model, str):
+                    # Execute this block via LiteLLM's batch API
+                    block_raw = [resp for resp in self.litellm.batch_completion(
+                        model=self.model,
+                        messages=litellm_requests[start:end],
+                        max_workers=self.max_litellm_workers,
+                    )]
+                    parsed_block = [
+                        resp.choices[0].message.content.strip()  # type: ignore[attr-defined]
+                        for resp in block_raw
+                    ]
+                else:
+                    # Callable model path
+                    parsed_block = [self.model(messages) for messages in litellm_requests[start:end]]
+                # Assign back to output in-order
+                for i, content in enumerate(parsed_block, start=start):
+                    responses_out[i] = content
+            except Exception as e:  # systemic failure within a block
+                print(f"Error during batch block {block_index} [{start}:{end}): {e}")
+                raise
+            finally:
+                print(f"Completed batch block {block_index}: [{start}:{end}) in {time.time() - start_time:.2f} seconds")
+            start = end
+        return [r if isinstance(r, str) else "" for r in responses_out]
+
+    async def _async_run(self, litellm_requests: list[list[dict[str, str]]]) -> list[str]:
+        """Async execution using litellm.acompletion with bounded concurrency.
+
+        - Uses a semaphore to cap concurrency at max_litellm_workers.
+        - Logs progress approximately every 5% of total requests.
+        """
+        import asyncio
+        import math
+        from litellm import acompletion  # type: ignore
+
+        total = len(litellm_requests)
+        print(f"Beginning async run for {len(litellm_requests)} items")
+        if total == 0:
+            return []
+
+        responses: list[str | None] = [None] * total
+        max_concurrency = self.max_litellm_workers if self.max_litellm_workers > 0 else 10
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        # Determine logging cadence (~every 5%)
+        step = max(1, math.ceil(total * 0.05))
+        next_log_at = step
+
+        async def run_one(index: int, messages: list[dict[str, str]]) -> None:
+            content: str = ""
+            try:
+                async with semaphore:
+                    resp = await acompletion(model=str(self.model), messages=messages)
+                    try:
+                        # Prioritize standard chat completion shape
+                        content = resp.choices[0].message.content.strip()  # type: ignore[attr-defined]
+                    except Exception:
+                        content = str(resp)
+            except Exception:
+                # Per-request failure; leave content as empty string
+                content = ""
+            finally:
+                responses[index] = content
+
+        tasks = [asyncio.create_task(run_one(i, m)) for i, m in enumerate(litellm_requests)]
+
+        completed = 0
+        for t in asyncio.as_completed(tasks):
+            await t
+            completed += 1
+            if completed >= next_log_at or completed == total:
+                pct = int((completed / total) * 100)
+                print(f"Progress: {completed}/{total} ({pct}%)")
+                next_log_at += step
+
+        return [r if isinstance(r, str) else "" for r in responses]
+
     def evaluate(
         self,
         batch: list[IFBenchDataInst],
@@ -75,22 +176,21 @@ class IFBenchAdapter(GEPAAdapter[IFBenchDataInst, IFBenchTrajectory, IFBenchRoll
             litellm_requests.append(messages)
 
         # Execute the model
-        responses = [resp for resp in self.litellm.batch_completion(
-            model=self.model,
-            messages=litellm_requests,
-            max_workers=self.max_litellm_workers,
-        )]
-        try:
-            if isinstance(self.model, str):
-                responses = [
-                    resp.choices[0].message.content.strip()
-                    for resp in responses
-                ]
-            else:
-                responses = [self.model(messages) for messages in litellm_requests]
-        except Exception as e:  # systemic failure
-            print(responses)
-            raise e
+        responses = self._batch_run(litellm_requests)
+        # if isinstance(self.model, str):
+        #     # Prefer async execution with progress logging; fall back to batch API
+        #     try:
+        #         import asyncio
+        #         responses = asyncio.run(self._async_run(litellm_requests))
+        #     except RuntimeError as e:
+        #         # Common when inside an active event loop (e.g., Jupyter)
+        #         print(f"Async execution unavailable ({e}); falling back to synchronous batch_completion.")
+        #         responses = self._batch_run(litellm_requests)
+        #     except Exception as e:
+        #         print(f"Async execution failed; falling back to synchronous batch_completion. Error: {e}")
+        #         responses = self._batch_run(litellm_requests)
+        # else:
+        #     responses = [self.model(messages) for messages in litellm_requests]
 
         # Score each response with IFBench metric (with feedback)
         for data, assistant_response in zip(batch, responses, strict=False):
