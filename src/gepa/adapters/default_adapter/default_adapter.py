@@ -40,6 +40,7 @@ class DefaultAdapter(GEPAAdapter[DefaultDataInst, DefaultTrajectory, DefaultRoll
         candidate: dict[str, str],
         capture_traces: bool = False,
     ) -> EvaluationBatch[DefaultTrajectory, DefaultRolloutOutput]:
+        print(f"Evaluating batch of {len(batch)} items with model {self.model} and max_litellm_workers {self.max_litellm_workers}")
         outputs: list[DefaultRolloutOutput] = []
         scores: list[float] = []
         trajectories: list[DefaultTrajectory] | None = [] if capture_traces else None
