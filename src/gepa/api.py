@@ -15,7 +15,10 @@ from gepa.proposer.reflective_mutation.base import LanguageModel, ReflectionComp
 from gepa.proposer.reflective_mutation.reflective_mutation import ReflectiveMutationProposer
 from gepa.strategies.batch_sampler import EpochShuffledBatchSampler
 from gepa.strategies.candidate_selector import CurrentBestCandidateSelector, ParetoCandidateSelector
-from gepa.strategies.component_selector import RoundRobinReflectionComponentSelector
+from gepa.strategies.component_selector import (
+    AllReflectionComponentSelector,
+    RoundRobinReflectionComponentSelector,
+)
 
 
 def optimize(
@@ -31,7 +34,7 @@ def optimize(
     reflection_minibatch_size=3,
     perfect_score=1,
     # Component selection configuration
-    module_selector: "ReflectionComponentSelector | str | None" = None,
+    module_selector: "ReflectionComponentSelector | str" = "round_robin",
     # Merge-based configuration
     use_merge=False,
     max_merge_invocations=5,
@@ -102,7 +105,7 @@ def optimize(
     - perfect_score: The perfect score to achieve.
 
     # Component selection configuration
-    - module_selector: Component selection strategy. Can be a ReflectionComponentSelector instance, a string ('round_robin'), or None. If None, defaults to 'round_robin'. The 'round_robin' strategy cycles through components in order.
+    - module_selector: Component selection strategy. Can be a ReflectionComponentSelector instance or a string ('round_robin', 'all'). Defaults to 'round_robin'. The 'round_robin' strategy cycles through components in order. The 'all' strategy selects all components for modification in every GEPA iteration.
 
     # Merge-based configuration
     - use_merge: Whether to use the merge strategy.
@@ -165,15 +168,14 @@ def optimize(
         ParetoCandidateSelector(rng=rng) if candidate_selection_strategy == "pareto" else CurrentBestCandidateSelector()
     )
 
-    module_selector = module_selector or "round_robin"
-
     if isinstance(module_selector, str):
         module_selector_cls = {
             "round_robin": RoundRobinReflectionComponentSelector,
+            "all": AllReflectionComponentSelector,
         }.get(module_selector)
 
         assert module_selector_cls is not None, (
-            f"Unknown module_selector strategy: {module_selector}. Supported strategies: 'round_robin'"
+            f"Unknown module_selector strategy: {module_selector}. Supported strategies: 'round_robin', 'all'"
         )
 
         module_selector = module_selector_cls()
