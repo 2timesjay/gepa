@@ -20,7 +20,7 @@ requires-python = ">=3.10, <3.14"
 dependencies = [
     "bm25s[full]>=0.2.13",
     "datasets>=4.0.0",
-    "dspy>=2.6.27",
+    "dspy>=3.0.3",
     "emoji>=2.14.1",
     "immutabledict>=4.2.1",
     "ipykernel>=6.30.1",
