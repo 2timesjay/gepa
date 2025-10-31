@@ -20,7 +20,13 @@ This repository provides the official implementation of the GEPA algorithm as pr
 
 
 ```bash
-pip install gepa
+pip install -e .
+```
+
+If installing dspy, you have to do something weird because of a circular dep
+```bash
+pip install dspy
+pip install -e .
 ```
 
 To install the very latest from `main`:
