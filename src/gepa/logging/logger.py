@@ -1,26 +1,27 @@
 # Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
 # https://github.com/gepa-ai/gepa
 
+import sys
 from typing import Protocol
 
 
 class LoggerProtocol(Protocol):
-    def log(self, message: str):
-        ...
+    def log(self, message: str): ...
+
 
 class StdOutLogger(LoggerProtocol):
     def log(self, message: str):
         print(message)
 
-import sys
-
 
 class Tee:
     def __init__(self, *files):
         self.files = files
+
     def write(self, obj):
         for f in self.files:
             f.write(obj)
+
     def flush(self):
         for f in self.files:
             if hasattr(f, "flush"):
@@ -40,6 +41,7 @@ class Tee:
             if hasattr(f, "fileno"):
                 return f.fileno()
         raise OSError("No underlying file object with fileno")
+
 
 class Logger(LoggerProtocol):
     def __init__(self, filename, mode="a"):

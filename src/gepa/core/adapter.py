@@ -9,6 +9,7 @@ RolloutOutput = TypeVar("RolloutOutput")
 Trajectory = TypeVar("Trajectory")
 DataInst = TypeVar("DataInst")
 
+
 @dataclass
 class EvaluationBatch(Generic[Trajectory, RolloutOutput]):
     """
@@ -22,9 +23,11 @@ class EvaluationBatch(Generic[Trajectory, RolloutOutput]):
       a reflective dataset (See `GEPAAdapter.make_reflective_dataset`). If capture_traces=True is passed to `evaluate`, trajectories
       should be provided and align one-to-one with `outputs` and `scores`.
     """
+
     outputs: list[RolloutOutput]
     scores: list[float]
     trajectories: list[Trajectory] | None = None
+
 
 class ProposalFn(Protocol):
     def __call__(
@@ -46,6 +49,7 @@ class ProposalFn(Protocol):
         """
         ...
 
+
 class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
     """
     GEPAAdapter is the single integration point between your system
@@ -54,7 +58,7 @@ class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
     The following are user-defined types that are not interpreted by GEPA but are used by the user's code
         to define the adapter:
     DataInst: User-defined type of input data to the program under optimization.
-    Trajectory: User-defined type of trajectory data, which typically captures the 
+    Trajectory: User-defined type of trajectory data, which typically captures the
         different steps of the program candidate execution.
     RolloutOutput: User-defined type of output data from the program candidate.
 
@@ -83,11 +87,11 @@ class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
       Ensure your metric is calibrated accordingly or normalized to a consistent scale.
     - trajectories: opaque to GEPA (the engine never inspects them). They must be
       consumable by your own make_reflective_dataset implementation to extract the
-      minimal context needed to produce meaningful feedback for every component of 
+      minimal context needed to produce meaningful feedback for every component of
       the system under optimization.
     - error handling: Never raise for individual example failures. Instead:
       - Return a valid `EvaluationBatch` with per-example failure scores (e.g., 0.0)
-        when formatting/parsing fails. Even better if the trajectories are also populated 
+        when formatting/parsing fails. Even better if the trajectories are also populated
         with the failed example, including the error message, identifying the reason for the failure.
       - Reserve exceptions for unrecoverable, systemic failures (e.g., missing model,
         misconfigured program, schema mismatch).
